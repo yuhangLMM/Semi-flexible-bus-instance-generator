@@ -1,0 +1,25 @@
+# Packages imported by the patched REQreate run, pinned to the versions of the
+# Python 3.8.1 environment that produced inputs/Leuven/ in April 2026.
+# The instance generators themselves need no packages.
+descartes==1.1.0
+fiona==1.9.6
+fitter==1.7.1
+geopandas==0.13.2
+geopy==2.4.1
+googledrivedownloader==1.1.0
+matplotlib==3.7.5
+networkx==3.1
+numpy==1.24.4
+osmapi==4.3.0
+osmnx==1.9.4
+pandas==2.0.3
+powerlaw==1.5
+pyproj==3.5.0
+pyshp==2.3.1
+ray==2.10.0
+requests==2.32.4
+scipy==1.10.1
+seaborn==0.13.2
+shapely==2.0.7
+SQLAlchemy==2.0.45
+SQLAlchemy-Utils==0.41.2

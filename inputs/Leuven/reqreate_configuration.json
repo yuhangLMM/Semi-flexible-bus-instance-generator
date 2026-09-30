@@ -1,0 +1,362 @@
+{
+  "seed": 42,
+  "network": "Leuven, Belgium",
+  "problem": "DARP_From_Files_Fixed",
+  "replicas": 1,
+  "requests": 8000,
+  "instance_filename": [
+    "network",
+    "problem",
+    "requests"
+  ],
+  "places": [
+    {
+      "name": "Stop_001_Wijgmaal_Oude_Baan",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.6882103,
+      "lat": 50.9364149
+    },
+    {
+      "name": "Stop_002_Wijgmaal_Driesstraat",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6973535,
+      "lat": 50.9350844
+    },
+    {
+      "name": "Stop_003_Wijgmaal_Wijveld",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.693852,
+      "lat": 50.9325437
+    },
+    {
+      "name": "Stop_004_Wijgmaal_Kroonstraat",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6893481,
+      "lat": 50.9320767
+    },
+    {
+      "name": "Stop_005_Wijgmaal_Klooster",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6970776,
+      "lat": 50.9304589
+    },
+    {
+      "name": "Stop_006_Wijgmaal_Sint_Hadrianuskerk",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.7026829,
+      "lat": 50.9264702
+    },
+    {
+      "name": "Stop_007_Wijgmaal_Korte_Dolagestraat",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.698925,
+      "lat": 50.9261413
+    },
+    {
+      "name": "Stop_008_Wijgmaal_Baron_Descampslaan",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.6924689,
+      "lat": 50.9250696
+    },
+    {
+      "name": "Stop_009_Wijgmaal_Vaartbrug",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6938735,
+      "lat": 50.9235926
+    },
+    {
+      "name": "Stop_010_Wijgmaal_Station",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.7019857,
+      "lat": 50.9228449
+    },
+    {
+      "name": "Stop_011_Wijgmaal_Remytoren",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.7010874,
+      "lat": 50.9208539
+    },
+    {
+      "name": "Stop_012_Wilsele_Corbeelsplein",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.6979418,
+      "lat": 50.9174758
+    },
+    {
+      "name": "Stop_013_Wilsele_Langveld",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.699041,
+      "lat": 50.91351
+    },
+    {
+      "name": "Stop_014_Wilsele_Brandenstraat",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.7051563,
+      "lat": 50.9018908
+    },
+    {
+      "name": "Stop_015_Wilsele_Tunnelweg",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.7018355,
+      "lat": 50.9009162
+    },
+    {
+      "name": "Stop_016_Added_OSM_4",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6988791,
+      "lat": 50.8993477
+    },
+    {
+      "name": "Stop_017_Wilsele_Sint_Martinuskerk",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.7023508,
+      "lat": 50.8968542
+    },
+    {
+      "name": "Stop_018_Added_OSM_1",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6994569,
+      "lat": 50.8958311
+    },
+    {
+      "name": "Stop_019_Added_OSM_2",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6973191,
+      "lat": 50.8942647
+    },
+    {
+      "name": "Stop_020_Wilsele_Autosnelweg_A2",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6900631,
+      "lat": 50.8934365
+    },
+    {
+      "name": "Stop_021_Wilsele_Kapellelaan",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.698917,
+      "lat": 50.8926027
+    },
+    {
+      "name": "Stop_022_Leuven_Decouxlaan",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.6941124,
+      "lat": 50.8908134
+    },
+    {
+      "name": "Stop_023_Added_OSM_3",
+      "type": "location",
+      "class": "optional",
+      "lon": 4.7003024,
+      "lat": 50.8905205
+    },
+    {
+      "name": "Stop_024_Leuven_Riddersstraat",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.6966528,
+      "lat": 50.8867117
+    },
+    {
+      "name": "Stop_025_Leuven_Dirk_Boutslaan",
+      "type": "location",
+      "class": "mandatory",
+      "lon": 4.6989006,
+      "lat": 50.880562
+    }
+  ],
+  "parameters": [
+    {
+      "name": "min_early_departure",
+      "type": "integer",
+      "value": 21600,
+      "time_unit": "s"
+    },
+    {
+      "name": "max_early_departure",
+      "type": "integer",
+      "value": 43200,
+      "time_unit": "s"
+    },
+    {
+      "name": "min_distance",
+      "type": "integer",
+      "value": 100,
+      "length_unit": "m"
+    },
+    {
+      "name": "all_stops",
+      "type": "array_locations",
+      "size": 25,
+      "value": [
+        "Stop_001_Wijgmaal_Oude_Baan",
+        "Stop_002_Wijgmaal_Driesstraat",
+        "Stop_003_Wijgmaal_Wijveld",
+        "Stop_004_Wijgmaal_Kroonstraat",
+        "Stop_005_Wijgmaal_Klooster",
+        "Stop_006_Wijgmaal_Sint_Hadrianuskerk",
+        "Stop_007_Wijgmaal_Korte_Dolagestraat",
+        "Stop_008_Wijgmaal_Baron_Descampslaan",
+        "Stop_009_Wijgmaal_Vaartbrug",
+        "Stop_010_Wijgmaal_Station",
+        "Stop_011_Wijgmaal_Remytoren",
+        "Stop_012_Wilsele_Corbeelsplein",
+        "Stop_013_Wilsele_Langveld",
+        "Stop_014_Wilsele_Brandenstraat",
+        "Stop_015_Wilsele_Tunnelweg",
+        "Stop_016_Added_OSM_4",
+        "Stop_017_Wilsele_Sint_Martinuskerk",
+        "Stop_018_Added_OSM_1",
+        "Stop_019_Added_OSM_2",
+        "Stop_020_Wilsele_Autosnelweg_A2",
+        "Stop_021_Wilsele_Kapellelaan",
+        "Stop_022_Leuven_Decouxlaan",
+        "Stop_023_Added_OSM_3",
+        "Stop_024_Leuven_Riddersstraat",
+        "Stop_025_Leuven_Dirk_Boutslaan"
+      ],
+      "locs": "random"
+    },
+    {
+      "name": "feasibility_check",
+      "type": "array_primitives",
+      "value": [
+        50.9364149,
+        4.6882103,
+        50.9364149,
+        4.6882103,
+        360,
+        720,
+        10,
+        3.0
+      ]
+    }
+  ],
+  "attributes": [
+    {
+      "name": "is_prebooked",
+      "type": "integer",
+      "pdf": [
+        {
+          "type": "uniform",
+          "loc": 0,
+          "scale": 1
+        }
+      ],
+      "output_csv": true
+    },
+    {
+      "name": "lt_dynamic",
+      "type": "integer",
+      "time_unit": "s",
+      "pdf": [
+        {
+          "type": "uniform",
+          "loc": 300,
+          "scale": 1500
+        }
+      ],
+      "output_csv": false
+    },
+    {
+      "name": "lt_prebooked",
+      "type": "integer",
+      "time_unit": "s",
+      "pdf": [
+        {
+          "type": "uniform",
+          "loc": 86400,
+          "scale": 172800
+        }
+      ],
+      "output_csv": false
+    },
+    {
+      "name": "lead_time",
+      "type": "integer",
+      "time_unit": "s",
+      "expression": "lt_prebooked if is_prebooked >= 0.5 else lt_dynamic"
+    },
+    {
+      "name": "earliest_departure",
+      "type": "integer",
+      "time_unit": "s",
+      "pdf": [
+        {
+          "type": "normal",
+          "loc": 32400,
+          "scale": 3600
+        }
+      ],
+      "constraints": [
+        "earliest_departure >= min_early_departure",
+        "earliest_departure <= max_early_departure"
+      ]
+    },
+    {
+      "name": "time_stamp",
+      "type": "integer",
+      "time_unit": "s",
+      "expression": "earliest_departure - lead_time"
+    },
+    {
+      "name": "origin",
+      "type": "location",
+      "subset_locations": "all_stops"
+    },
+    {
+      "name": "destination",
+      "type": "location",
+      "subset_locations": "all_stops"
+    },
+    {
+      "name": "direct_distance",
+      "type": "integer",
+      "length_unit": "m",
+      "expression": "dist_drive(origin,destination)",
+      "constraints": [
+        "direct_distance >= min_distance"
+      ],
+      "output_csv": true
+    },
+    {
+      "name": "direct_travel_time",
+      "type": "integer",
+      "time_unit": "s",
+      "expression": "dtt(origin,destination)",
+      "constraints": [
+        "direct_travel_time > 0"
+      ]
+    },
+    {
+      "name": "latest_arrival",
+      "type": "integer",
+      "time_unit": "s",
+      "expression": "earliest_departure + direct_travel_time + 600"
+    }
+  ],
+  "travel_time_matrix": [
+    "all_stops"
+  ]
+}

@@ -1,0 +1,1690 @@
+diff --git a/REQreate/REQreate.py b/REQreate/REQreate.py
+index 008f325c..2afc11b8 100644
+--- a/REQreate/REQreate.py
++++ b/REQreate/REQreate.py
+@@ -1,15 +1,16 @@
+ from input_json import input_json
+ #from streamlit import caching
+ import os
++import traceback
+ 
+ if __name__ == '__main__':
+ 
+     #caching.clear_cache()
+ 
+     #EDIT HERE
+-    place_name = "Chicago, Illinois"
+-    inst_directory = '../examples/basic_examples/example_4/' #directory to which the configuration files are saved
+-    base_save_folder_name = 'instancesEXAMPLES' #give a unique folder name to save the instances
++    place_name = "Leuven, Belgium"
++    inst_directory = r'./examples/my_cases/leuven_case_07/' #directory to which the configuration files are saved
++    base_save_folder_name = '' #give a unique folder name to save the instances
+     #EDIT HERE
+ 
+     directory = os.fsencode(inst_directory)
+@@ -42,10 +43,11 @@ if __name__ == '__main__':
+                 print(instance_filename)
+                 #print("here")
+                 try:
+-                    input_json(inst_directory, instance_filename, base_save_folder_name)  
+-                except FileNotFoundError:
+-                    
+-                    pass
++                    input_json(inst_directory, instance_filename, base_save_folder_name)
++                except Exception as e:
++                    print(f"[REQREATE-ERROR] config={instance_filename}  error={e}")
++                    traceback.print_exc()
++                    raise
+         else:
+             print('already FOUND')
+     
+diff --git a/REQreate/input_json.py b/REQreate/input_json.py
+index 6256f18a..a6e4b683 100644
+--- a/REQreate/input_json.py
++++ b/REQreate/input_json.py
+@@ -249,17 +249,18 @@ def input_json(inst_directory, instance_filename, base_save_folder_name):
+                 if not inst.network.polygon.contains(Point(lon,lat)):
+                     raise ValueError('location for '+namelocation+' is not within the boundaries of network')
+ 
+-                
+-                if 'class' in j: 
+-                    classlocs = ['school', 'coordinate', 'bus_stop']
++                if 'class' in j:
++                    # 【修改 1】在白名单中添加 'mandatory' 和 'optional'
++                    classlocs = ['school', 'coordinate', 'bus_stop', 'mandatory', 'optional']
+ 
+                     if j['class'] not in classlocs:
+-                        raise ValueError('location '+str(j['type'])+' is not supported')
++                        raise ValueError('location ' + str(j['type']) + ' is not supported')
+ 
+                     if j['class'] == 'school':
+                         inst.network.add_new_school(name=namelocation, x=lon, y=lat)
+ 
+-                    if j['class'] == 'bus_stop':
++                    # 【修改 2】让 mandatory 和 optional 也执行添加站点的逻辑
++                    if j['class'] in ['bus_stop', 'mandatory', 'optional']:
+                         inst.network.add_new_stop(types=0, x=lon, y=lat)
+                 
+ 
+@@ -981,7 +982,7 @@ def input_json(inst_directory, instance_filename, base_save_folder_name):
+                 else:    
+                     GA.nodes[name]['static_probability'] = 0
+ 
+-        for node in GA.nodes():
++        for node in list(GA.nodes()):
+ 
+             if 'expression' in GA.nodes[node]:
+                 expression = re.split(r"[(,) ]", GA.nodes[node]['expression'])
+@@ -1107,7 +1108,57 @@ def input_json(inst_directory, instance_filename, base_save_folder_name):
+ 
+     if not os.path.isdir(inst.save_dir+'/json_format/'+base_save_folder_name):
+         os.mkdir(inst.save_dir+'/json_format/'+base_save_folder_name)
+-    
++    # [插入开始] ==============================================
++    # 强制提取矩阵补丁 (最终修正版)
++    print(">>> 正在尝试强制计算并导出 travel_time_matrix ...")
++    try:
++        target_nodes = []
++        # 优先找 all_stops，找不到就找 bus_stations
++        if 'all_stops' in inst.parameters:
++            target_nodes = inst.parameters['all_stops']['list_node_drive']
++            print(f"    目标: all_stops ({len(target_nodes)} 个点)")
++        elif hasattr(inst.network, 'bus_stations') and len(inst.network.bus_stations) > 0:
++            pass  # 备选逻辑
++
++        if len(target_nodes) > 0:
++            # 计算矩阵 (返回的是 numpy array)
++            matrix_raw = inst.network._get_travel_time_matrix("list", node_list=target_nodes)
++
++            # --- 关键修复 1: 转换 Numpy 为纯 Python 列表 ---
++            if hasattr(matrix_raw, 'tolist'):
++                matrix_list = matrix_raw.tolist()
++            else:
++                matrix_list = matrix_raw
++
++            # 双重保险：确保里面的数字也是 int/float 而不是 numpy 类型
++            final_list = []
++            for x in matrix_list:
++                if isinstance(x, (np.floating, float)):
++                    final_list.append(float(x))
++                elif isinstance(x, (np.integer, int)):
++                    final_list.append(int(x))
++                else:
++                    final_list.append(x)
++
++            # --- 关键修复 2: 保存到上一级目录，避免被当成 Input 读取 ---
++            # 获取当前 inst_directory 的上一级文件夹
++            parent_dir = os.path.dirname(os.path.normpath(inst_directory))
++            forced_output_path = os.path.join(parent_dir, "forced_matrix.json")
++
++            with open(forced_output_path, 'w') as f:
++                json.dump(final_list, f)
++            print(f"✅ 成功！矩阵已强制保存至: {forced_output_path}")
++            print(f"    (请去上一级目录查找该文件，不要在当前 input 文件夹找)")
++
++        else:
++            print("❌ 失败：找不到有效的站点节点列表")
++
++    except Exception as e:
++        print(f"❌ 强制提取出错: {e}")
++        import traceback
++        traceback.print_exc()
++    # [插入结束] ==============================================
++
+     gc.collect()
+     inst.generate_requests(base_save_folder_name, inst_directory)
+ 
+diff --git a/REQreate/passenger_requests.py b/REQreate/passenger_requests.py
+index 7c5a73b5..e021fd69 100644
+--- a/REQreate/passenger_requests.py
++++ b/REQreate/passenger_requests.py
+@@ -28,58 +28,58 @@ import gc
+ from datetime import datetime
+ from dynamism import dynamism
+ 
++
+ def eval_expression(input_string):
+-    
+-    allowed_names = {"len": len, 
+-                    "set": set,
+-                    "abs": abs,
+-                    "float": float,
+-                    "int": int,
+-                    "max": max,
+-                    "min": min,
+-                    "pow": pow,
+-                    "round": round,
+-                    "str": str,
+-                    "isinstance": isinstance
+-                    }
+-    
++    allowed_names = {"len": len,
++                     "set": set,
++                     "abs": abs,
++                     "float": float,
++                     "int": int,
++                     "max": max,
++                     "min": min,
++                     "pow": pow,
++                     "round": round,
++                     "str": str,
++                     "isinstance": isinstance
++                     }
++
+     code = compile(input_string, "<string>", "eval")
+-    
++
+     for name in code.co_names:
+         if name not in allowed_names:
+-            raise NameError(f"Use of "+name+" is not allowed OR it is not in the parameters/attributes")
++            raise NameError(f"Use of " + name + " is not allowed OR it is not in the parameters/attributes")
+     return eval(code, {"__builtins__": {}}, allowed_names)
+ 
+-def plot_requests(network, save_dir_images, origin_points, destination_points):
+ 
+-    fig, ax = ox.plot_graph(network.G_drive, show=False, close=False, node_color='#000000', node_size=6, bgcolor="#ffffff", edge_color="#999999")
++def plot_requests(network, save_dir_images, origin_points, destination_points):
++    fig, ax = ox.plot_graph(network.G_drive, show=False, close=False, node_color='#000000', node_size=6,
++                            bgcolor="#ffffff", edge_color="#999999")
+ 
+     requests_folder = os.path.join(save_dir_images, 'requests')
+ 
+     if not os.path.isdir(requests_folder):
+         os.mkdir(requests_folder)
+ 
+-    #plot origin locations
++    # plot origin locations
+     for origin in origin_points:
+         ax.scatter(origin[1], origin[0], c='red', s=8, marker=",")
+ 
+-    plt.savefig(requests_folder+'/requests_origin_locations')
+-    plt.close(fig) 
++    plt.savefig(requests_folder + '/requests_origin_locations')
++    plt.close(fig)
+ 
+-    #plot destination locations
+-    fig, ax = ox.plot_graph(network.G_drive, show=False, close=False, node_color='#000000', node_size=6, bgcolor="#ffffff", edge_color="#999999")
++    # plot destination locations
++    fig, ax = ox.plot_graph(network.G_drive, show=False, close=False, node_color='#000000', node_size=6,
++                            bgcolor="#ffffff", edge_color="#999999")
+ 
+     for destination in destination_points:
+-
+         ax.scatter(destination[1], destination[0], c='green', s=8, marker="o")
+ 
+-    plt.savefig(requests_folder+'/requests_destination_locations')
++    plt.savefig(requests_folder + '/requests_destination_locations')
+     plt.close(fig)
+ 
+ 
+-@ray.remote
+-def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, method_poi, distancex, pu, do, pdfunc, loc, scale, aux, time_stamps, replicate_num, reaction_times, num_requests, zonescsv):
+-    
++def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, method_poi, distancex, pu, do, pdfunc, loc,
++                          scale, aux, time_stamps, replicate_num, reaction_times, num_requests, zonescsv):
+     attributes = {}
+     feasible_data = False
+     first_time = True
+@@ -87,13 +87,13 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+     loc_attempts = 0
+     att_attempts = 0
+     while not feasible_data:
+-        
++
+         attributes = {}
+         feasible_data = True
+         if method_poi:
+-            heads_or_tails = random.randint(0,1)
++            heads_or_tails = random.randint(0, 1)
+             if heads_or_tails == 1:
+-                
++
+                 for sa in range(len(sorted_attributes)):
+                     if sorted_attributes[sa] == pu:
+                         sorted_attributes[sa] = do
+@@ -101,7 +101,6 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                         if sorted_attributes[sa] == do:
+                             sorted_attributes[sa] = pu
+ 
+-        
+         for att in sorted_attributes:
+ 
+             not_feasible_attribute = True
+@@ -109,11 +108,15 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+             while (not_feasible_attribute) and (exhaustion_iterations < 100):
+ 
+-                seed_attribute = ((reqid+1)*111*(replicate_num+1))+att_attempts+num_requests
++                seed_attribute = ((reqid + 1) * 111 * (replicate_num + 1)) + att_attempts + num_requests
+                 att_attempts += 1
+-                if GA.nodes[att]['type'] == 'location':
++                node = GA.nodes[att]
++                if 'type' not in node:
++                    print(f"[DEBUG] Missing 'type' for GA node: att={att}, node={node}")
++                    raise KeyError(f"Missing 'type' for GA node: {att}")
++                if node['type'] == 'location':
+ 
+-                    seed_location = ((reqid+1)*1111*(replicate_num+1))+loc_attempts+num_requests
++                    seed_location = ((reqid + 1) * 1111 * (replicate_num + 1)) + loc_attempts + num_requests
+                     random_zone_id = -1
+ 
+                     if 'subset_zones' in GA.nodes[att]:
+@@ -125,18 +128,18 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                             if method_poi:
+ 
+                                 type_coord = att
+-                                #print(type_coord)
++                                # print(type_coord)
+                                 zones = network.zones.index.tolist()
+-                                
++
+                                 if heads_or_tails == 0:
+ 
+                                     if type_coord == do:
+-                                        
++
+                                         if not first_time:
+                                             random.seed(seed_location)
+-                                            rseed = np.random.uniform(0,1)
++                                            rseed = random.uniform(0, 1)
+                                             rseed = rseed * 1000
+-                                            #print(rseed)
++                                            # print(rseed)
+                                             rseed = int(rseed)
+ 
+                                             if pdfunc == 'cauchy':
+@@ -176,7 +179,7 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                                             if pdfunc == 'wald':
+                                                 wald.random_state = np.random.RandomState(seed=rseed)
+                                                 radius = wald.rvs(loc=loc, scale=scale, size=1)
+-                                            
++
+                                             if pdfunc == 'poisson':
+                                                 poisson.random_state = np.random.RandomState(seed=rseed)
+                                                 radius = poisson.rvs(a=aux, size=1)
+@@ -184,33 +187,34 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                                         else:
+                                             radius = distancex
+                                             first_time = False
+-                                        
++
+                                         att_start = pu
+                                         try:
+-                                            lat = attributes[att_start+'y']
+-                                            lon = attributes[att_start+'x']
+-                                            point = network._get_random_coord_radius(lat, lon, radius, network.polygon, seed_location)
++                                            lat = attributes[att_start + 'y']
++                                            lon = attributes[att_start + 'x']
++                                            point = network._get_random_coord_radius(lat, lon, radius, network.polygon,
++                                                                                     seed_location)
+                                         except KeyError:
+                                             point = Point(-1, -1)
+ 
+                                     elif type_coord == pu:
+-                                        
++
+                                         probabilities = network.zones['density_pois'].tolist()
+                                         random_zone_id = np.random.choice(a=zones, size=1, p=probabilities)
+ 
+                                         random_zone_id = random_zone_id[0]
+                                         polygon_zone = network.zones.loc[random_zone_id]['polygon']
+                                         point = network._get_random_coord(polygon_zone, seed_location)
+-                                    
++
+                                 else:
+ 
+                                     if type_coord == pu:
+-                                        
++
+                                         if not first_time:
+                                             random.seed(seed_location)
+-                                            rseed = np.random.uniform(0,1)
++                                            rseed = random.uniform(0, 1)
+                                             rseed = rseed * 1000
+-                                            #print(rseed)
++                                            # print(rseed)
+                                             rseed = int(rseed)
+ 
+                                             if pdfunc == 'cauchy':
+@@ -254,21 +258,22 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                                             if pdfunc == 'poisson':
+                                                 poisson.random_state = np.random.RandomState(seed=rseed)
+                                                 radius = poisson.rvs(a=aux, size=1)
+-                                            
++
+                                         else:
+                                             radius = distancex
+                                             first_time = False
+ 
+                                         att_start = do
+                                         try:
+-                                            lat = attributes[att_start+'y']
+-                                            lon = attributes[att_start+'x']
+-                                            point = network._get_random_coord_radius(lat, lon, radius, network.polygon, seed_location)
++                                            lat = attributes[att_start + 'y']
++                                            lon = attributes[att_start + 'x']
++                                            point = network._get_random_coord_radius(lat, lon, radius, network.polygon,
++                                                                                     seed_location)
+                                         except KeyError:
+                                             point = Point(-1, -1)
+ 
+                                     elif type_coord == do:
+-                                        
++
+                                         probabilities = network.zones['density_pois'].tolist()
+                                         random_zone_id = np.random.choice(a=zones, size=1, p=probabilities)
+ 
+@@ -278,13 +283,16 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                             else:
+ 
+-                                if (att != 'destination') and (att != 'origin') and (parameters['set_geographic_dispersion']['value'] == True):
+-                                    raise ValueError('Location attributes must be named origin and destination when setting Geographic Dispersion')
+-                                    
+-                                if (att == 'destination') and (parameters['set_geographic_dispersion']['value'] == True):
+-                                    
++                                if (att != 'destination') and (att != 'origin') and (
++                                        parameters['set_geographic_dispersion']['value'] == True):
++                                    raise ValueError(
++                                        'Location attributes must be named origin and destination when setting Geographic Dispersion')
++
++                                if (att == 'destination') and (
++                                        parameters['set_geographic_dispersion']['value'] == True):
++
+                                     random.seed(seed_location)
+-                                    rseed = np.random.uniform(0,1)
++                                    rseed = random.uniform(0, 1)
+                                     rseed = rseed * 1000
+                                     rseed = int(rseed)
+                                     uniform.random_state = np.random.RandomState(seed=rseed)
+@@ -293,63 +301,73 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                                         if 'min_dtt' in parameters:
+ 
+-                                            loc1 = parameters['min_dtt']['value']*network.vehicle_speed
++                                            loc1 = parameters['min_dtt']['value'] * network.vehicle_speed
+ 
+                                         else:
+-                                            raise ValueError('Parameter min_dtt must be specified for Geographic dispersion')
++                                            raise ValueError(
++                                                'Parameter min_dtt must be specified for Geographic dispersion')
+ 
+                                         if 'max_dtt' in parameters:
+ 
+-                                            scale1 = parameters['max_dtt']['value']*network.vehicle_speed - loc1
++                                            scale1 = parameters['max_dtt']['value'] * network.vehicle_speed - loc1
+ 
+                                         else:
+-                                            raise ValueError('Parameter max_dtt must be specified for Geographic dispersion')
++                                            raise ValueError(
++                                                'Parameter max_dtt must be specified for Geographic dispersion')
+ 
+                                         print(loc1, scale1)
+                                         radius = uniform.rvs(loc=loc1, scale=scale1, size=1)
+ 
+                                     else:
+-                                        raise ValueError('Geographic dispersion is only supported with fixed speed values. Set with set_fixed_speed')
++                                        raise ValueError(
++                                            'Geographic dispersion is only supported with fixed speed values. Set with set_fixed_speed')
+ 
+-                                    
+-                                    point = network._get_random_coord_radius(attributes['originy'], attributes['originx'], radius, network.polygon, seed_location)
++                                    point = network._get_random_coord_radius(attributes['originy'],
++                                                                             attributes['originx'], radius,
++                                                                             network.polygon, seed_location)
+ 
+                                 else:
+                                     if 'subset_locations' in GA.nodes[att]:
+ 
+                                         loc = GA.nodes[att]['subset_locations']
+-                                        
++
+                                         if 'weights' in GA.nodes[att]:
+ 
+                                             if parameters[loc]['locs'] == 'schools':
+-                                                idxs = random.choices(parameters[loc]['list_ids'+str(replicate_num)], weights=GA.nodes[att]['weights'], k=1)
+-                                                point = (network.schools.loc[idxs[0], 'lat'], network.schools.loc[idxs[0], 'lon'])
++                                                idxs = random.choices(parameters[loc]['list_ids' + str(replicate_num)],
++                                                                      weights=GA.nodes[att]['weights'], k=1)
++                                                point = (network.schools.loc[idxs[0], 'lat'],
++                                                         network.schools.loc[idxs[0], 'lon'])
+                                             elif parameters[loc]['locs'] == 'random':
+-                                                idxs = random.choices(parameters[loc]['list'+str(replicate_num)], weights=GA.nodes[att]['weights'], k=1)
+-                                                point = (parameters[loc]['list_lat'+str(replicate_num)][idxs], parameters[loc]['list_lon'+str(replicate_num)][idxs])
+-                                                #point = (network.schools.loc[idxs[0], 'lat'], network.schools.loc[idxs[0], 'lon'])
++                                                idxs = random.choices(parameters[loc]['list' + str(replicate_num)],
++                                                                      weights=GA.nodes[att]['weights'], k=1)
++                                                point = (parameters[loc]['list_lat' + str(replicate_num)][idxs],
++                                                         parameters[loc]['list_lon' + str(replicate_num)][idxs])
++                                                # point = (network.schools.loc[idxs[0], 'lat'], network.schools.loc[idxs[0], 'lon'])
+                                             else:
+                                                 point = network._get_random_coord(network.polygon, seed_location)
+                                         else:
+ 
+                                             if parameters[loc]['locs'] == 'schools':
+-                                                idxs = random.choice(parameters[loc]['list_ids'+str(replicate_num)])
+-                                                #idxs = np.random.randint(0, parameters[loc]['size'])
+-                                                point = (network.schools.loc[idxs, 'lat'], network.schools.loc[idxs, 'lon'])
++                                                idxs = random.choice(parameters[loc]['list_ids' + str(replicate_num)])
++                                                # idxs = np.random.randint(0, parameters[loc]['size'])
++                                                point = (network.schools.loc[idxs, 'lat'],
++                                                         network.schools.loc[idxs, 'lon'])
+                                             elif parameters[loc]['locs'] == 'random':
+-                                                #idxs = random.choice(parameters[loc]['list'+str(replicate_num)])
++                                                # idxs = random.choice(parameters[loc]['list'+str(replicate_num)])
+                                                 idxs = np.random.randint(0, parameters[loc]['size'])
+-                                                #print("heerexx ", idxs)
+-                                                #idxs = int(idxs)
+-                                                point = (parameters[loc]['list_lat'+str(replicate_num)][idxs], parameters[loc]['list_lon'+str(replicate_num)][idxs])
+-                                                #print("heere ", point)
++                                                # print("heerexx ", idxs)
++                                                # idxs = int(idxs)
++                                                point = (parameters[loc]['list_lat' + str(replicate_num)][idxs],
++                                                         parameters[loc]['list_lon' + str(replicate_num)][idxs])
++                                                # print("heere ", point)
+ 
+                                             else:
+                                                 point = network._get_random_coord(network.polygon, seed_location)
+                                     else:
+-                                        point = network._get_random_coord(network.polygon, seed_location) 
+-                            
+-                            try: 
++                                        point = network._get_random_coord(network.polygon, seed_location)
++
++                            try:
+                                 point = (point.y, point.x)
+ 
+                             except AttributeError:
+@@ -357,7 +375,7 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                         else:
+ 
+-                            zones = parameters[zone]['zones'+str(replicate_num)]
++                            zones = parameters[zone]['zones' + str(replicate_num)]
+ 
+                             if 'weights' in GA.nodes[att]:
+ 
+@@ -369,7 +387,7 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                                 random_zone_id = random.choice(zones)
+                                 polygon_zone = network.zones.loc[random_zone_id]['polygon']
+-                            
++
+                             try:
+ 
+                                 if math.isnan(polygon_zone):
+@@ -377,10 +395,10 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                                     clat = network.zones.loc[random_zone_id]['center_y']
+                                     clon = network.zones.loc[random_zone_id]['center_x']
+                                     point = network._get_random_coord_circle(R, clat, clon, seed_location)
+-                                    
++
+                             except TypeError:
+-                            
+-                                point = network._get_random_coord(polygon_zone, seed_location)                                
++
++                                point = network._get_random_coord(polygon_zone, seed_location)
+ 
+                             point = (point.y, point.x)
+                     else:
+@@ -388,78 +406,77 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                         if 'subset_locations' in GA.nodes[att]:
+ 
+                             loc = GA.nodes[att]['subset_locations']
+-                            
++
+                             if 'weights' in GA.nodes[att]:
+ 
+                                 if parameters[loc]['locs'] == 'schools':
+-                                    idxs = random.choices(parameters[loc]['list_ids'+str(replicate_num)], weights=GA.nodes[att]['weights'], k=1)
++                                    idxs = random.choices(parameters[loc]['list_ids' + str(replicate_num)],
++                                                          weights=GA.nodes[att]['weights'], k=1)
+                                     point = (network.schools.loc[idxs[0], 'lat'], network.schools.loc[idxs[0], 'lon'])
+                                 elif parameters[loc]['locs'] == 'random':
+-                                    idxs = random.choices(parameters[loc]['list'+str(replicate_num)], weights=GA.nodes[att]['weights'], k=1)
+-                                    point = (parameters[loc]['list_lat'+str(replicate_num)][idxs], parameters[loc]['list_lon'+str(replicate_num)][idxs])
+-                                    #point = (network.schools.loc[idxs[0], 'lat'], network.schools.loc[idxs[0], 'lon'])
++                                    idxs = random.choices(parameters[loc]['list' + str(replicate_num)],
++                                                          weights=GA.nodes[att]['weights'], k=1)
++                                    point = (parameters[loc]['list_lat' + str(replicate_num)][idxs],
++                                             parameters[loc]['list_lon' + str(replicate_num)][idxs])
++                                    # point = (network.schools.loc[idxs[0], 'lat'], network.schools.loc[idxs[0], 'lon'])
+                             else:
+ 
+                                 if parameters[loc]['locs'] == 'schools':
+-                                    idxs = random.choice(parameters[loc]['list_ids'+str(replicate_num)])
++                                    idxs = random.choice(parameters[loc]['list_ids' + str(replicate_num)])
+                                     point = (network.schools.loc[idxs, 'lat'], network.schools.loc[idxs, 'lon'])
+                                 elif parameters[loc]['locs'] == 'random':
+-                                    idxs = random.choice(parameters[loc]['list'+str(replicate_num)])
+-                                    point = (parameters[loc]['list_lat'+str(replicate_num)][idxs[0]], parameters[loc]['list_lon'+str(replicate_num)][idxs[0]])
+-                                    #print("heere ", point)
+-                                    #point = (network.schools.loc[idxs, 'lat'], network.schools.loc[idxs, 'lon'])
+-                    
++                                    idxs = random.choice(parameters[loc]['list' + str(replicate_num)])
++                                    point = (parameters[loc]['list_lat' + str(replicate_num)][idxs[0]],
++                                             parameters[loc]['list_lon' + str(replicate_num)][idxs[0]])
++                                    # print("heere ", point)
++                                    # point = (network.schools.loc[idxs, 'lat'], network.schools.loc[idxs, 'lon'])
+ 
+-                    #point = locations[(reqid*num_excl_loc)+loc_attempts]
+-                    #print(reqid, (reqid*num_excl_loc)+loc_attempts)
++                    # point = locations[(reqid*num_excl_loc)+loc_attempts]
++                    # print(reqid, (reqid*num_excl_loc)+loc_attempts)
+ 
+                     attributes[att] = point
+-                    attributes[att+'x'] = point[1]
+-                    attributes[att+'y'] = point[0]
+-                    
++                    attributes[att + 'x'] = point[1]
++                    attributes[att + 'y'] = point[0]
++
+                     if point[1] != -1:
+                         not_feasible_attribute = False
+-                        
++
+                         node_drive = ox.nearest_nodes(network.G_drive, point[1], point[0])
+                         node_walk = ox.nearest_nodes(network.G_walk, point[1], point[0])
+ 
+-                        attributes[att+'node_drive'] = int(node_drive)
+-                        attributes[att+'node_walk'] = int(node_walk)
++                        attributes[att + 'node_drive'] = int(node_drive)
++                        attributes[att + 'node_walk'] = int(node_walk)
+ 
+-                        attributes[att+'zone'] = int(random_zone_id)
++                        attributes[att + 'zone'] = int(random_zone_id)
+ 
+                     else:
+                         not_feasible_attribute = True
+-                    
++
+                     loc_attempts += 1
+-                
+-                if att == pu:         
++
++                if att == pu:
+                     if not_feasible_attribute:
+-                
+                         feasible_data = False
+-                        break 
++                        break
+ 
+-                if att == do:         
++                if att == do:
+                     if not_feasible_attribute:
+-                
+                         feasible_data = False
+-                        break 
++                        break
+ 
+-                #remove this later
+-                
+-                if att == 'destination':         
++                        # remove this later
++
++                if att == 'destination':
+                     if not_feasible_attribute:
+-                
+                         feasible_data = False
+-                        break 
+-                
+-                
++                        break
++
+                 if 'pdf' in GA.nodes[att]:
+ 
+                     if att != 'reaction_time':
+ 
+                         random.seed(seed_attribute)
+-                        rseed = np.random.uniform(0,1)
++                        rseed = random.uniform(0, 1)
+                         rseed = rseed * 1000
+                         rseed = int(rseed)
+ 
+@@ -467,22 +484,22 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                             if ((att == 'time_stamp') and (len(time_stamps) > 0)):
+ 
+-                                    attributes[att] = int(time_stamps[reqid])
++                                attributes[att] = int(time_stamps[reqid])
+ 
+                             else:
+                                 norm.random_state = np.random.RandomState(seed=rseed)
+-                                attributes[att] = norm.rvs(loc=GA.nodes[att]['pdf'][0]['loc'], scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
+-                                
++                                attributes[att] = norm.rvs(loc=GA.nodes[att]['pdf'][0]['loc'],
++                                                           scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
++
+                                 if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                                     attributes[att] = int(attributes[att])
+ 
+-                        
+                         if GA.nodes[att]['pdf'][0]['type'] == 'uniform':
+ 
+-
+                             if 'weights' in GA.nodes[att]:
+ 
+-                                attributes[att] = random.choices(GA.nodes[att]['all_values'], weights=GA.nodes[att]['weights'], k=1)
++                                attributes[att] = random.choices(GA.nodes[att]['all_values'],
++                                                                 weights=GA.nodes[att]['weights'], k=1)
+                                 attributes[att] = attributes[att][0]
+ 
+                             else:
+@@ -493,17 +510,21 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                                 else:
+                                     if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+-                                        attributes[att] = np.random.randint(GA.nodes[att]['pdf'][0]['loc'], GA.nodes[att]['pdf'][0]['scale'] + GA.nodes[att]['pdf'][0]['loc'] + 1)
++                                        attributes[att] = np.random.randint(GA.nodes[att]['pdf'][0]['loc'],
++                                                                            GA.nodes[att]['pdf'][0]['scale'] +
++                                                                            GA.nodes[att]['pdf'][0]['loc'] + 1)
+ 
+                                     else:
+                                         uniform.random_state = np.random.RandomState(seed=rseed)
+-                                        attributes[att] = uniform.rvs(loc=GA.nodes[att]['pdf'][0]['loc'], scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
++                                        attributes[att] = uniform.rvs(loc=GA.nodes[att]['pdf'][0]['loc'],
++                                                                      scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
+                                         attributes[att] = attributes[att][0]
+ 
+                         if GA.nodes[att]['pdf'][0]['type'] == 'cauchy':
+ 
+                             cauchy.random_state = np.random.RandomState(seed=rseed)
+-                            attributes[att] = cauchy.rvs(loc=GA.nodes[att]['pdf'][0]['loc'], scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
++                            attributes[att] = cauchy.rvs(loc=GA.nodes[att]['pdf'][0]['loc'],
++                                                         scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
+ 
+                             if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                                 attributes[att] = int(attributes[att])
+@@ -511,7 +532,8 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                         if GA.nodes[att]['pdf'][0]['type'] == 'expon':
+ 
+                             expon.random_state = np.random.RandomState(seed=rseed)
+-                            attributes[att] = expon.rvs(loc=GA.nodes[att]['pdf'][0]['loc'], scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
++                            attributes[att] = expon.rvs(loc=GA.nodes[att]['pdf'][0]['loc'],
++                                                        scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
+ 
+                             if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                                 attributes[att] = int(attributes[att])
+@@ -529,7 +551,8 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                         if GA.nodes[att]['pdf'][0]['type'] == 'gilbrat':
+ 
+                             gilbrat.random_state = np.random.RandomState(seed=rseed)
+-                            attributes[att] = gilbrat.rvs(loc=GA.nodes[att]['pdf'][0]['loc'], scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
++                            attributes[att] = gilbrat.rvs(loc=GA.nodes[att]['pdf'][0]['loc'],
++                                                          scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
+ 
+                             if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                                 attributes[att] = int(attributes[att])
+@@ -537,7 +560,8 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                         if GA.nodes[att]['pdf'][0]['type'] == 'lognorm':
+ 
+                             lognorm.random_state = np.random.RandomState(seed=rseed)
+-                            attributes[att] = lognorm.rvs(loc=GA.nodes[att]['pdf'][0]['loc'], scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
++                            attributes[att] = lognorm.rvs(loc=GA.nodes[att]['pdf'][0]['loc'],
++                                                          scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
+ 
+                             if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                                 attributes[att] = int(attributes[att])
+@@ -545,7 +569,9 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                         if GA.nodes[att]['pdf'][0]['type'] == 'powerlaw':
+ 
+                             powerlaw.random_state = np.random.RandomState(seed=rseed)
+-                            attributes[att] = powerlaw.rvs(a=GA.nodes[att]['pdf'][0]['aux'], loc=GA.nodes[att]['pdf'][0]['loc'], scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
++                            attributes[att] = powerlaw.rvs(a=GA.nodes[att]['pdf'][0]['aux'],
++                                                           loc=GA.nodes[att]['pdf'][0]['loc'],
++                                                           scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
+ 
+                             if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                                 attributes[att] = int(attributes[att])
+@@ -553,7 +579,8 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                         if GA.nodes[att]['pdf'][0]['type'] == 'wald':
+ 
+                             wald.random_state = np.random.RandomState(seed=rseed)
+-                            attributes[att] = wald.rvs(loc=GA.nodes[att]['pdf'][0]['loc'], scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
++                            attributes[att] = wald.rvs(loc=GA.nodes[att]['pdf'][0]['loc'],
++                                                       scale=GA.nodes[att]['pdf'][0]['scale'], size=1)
+ 
+                             if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                                 attributes[att] = int(attributes[att])
+@@ -562,47 +589,48 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                             poisson.random_state = np.random.RandomState(seed=rseed)
+                             attributes[att] = poisson.rvs(mu=GA.nodes[att]['pdf'][0]['a'], size=1)
+-                            
++
+                             if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                                 attributes[att] = int(attributes[att])
+                     else:
+ 
+                         attributes[att] = reaction_times[reqid]
+ 
+-                    
++
+                 elif 'expression' in GA.nodes[att]:
+ 
+                     expression = GA.nodes[att]['expression']
+ 
+                     if att == 'time_stamp':
+                         static = np.random.uniform(0, 1)
+-                        #print(static)
++                        # print(static)
+                         if static < GA.nodes[att]['static_probability']:
+                             expression = '0'
+-                    
++
+                     for attx in sorted_attributes:
+ 
+                         if attx in attributes:
+-                            expression = re.sub(attx, str(attributes[attx]), expression)                        
+-                    
++                            expression = re.sub(attx, str(attributes[attx]), expression)
++
+                     try:
+-                        
++
+                         attributes[att] = eval_expression(expression)
+-                        
++
+                         if (GA.nodes[att]['type'] == 'time') or (GA.nodes[att]['type'] == 'integer'):
+                             attributes[att] = int(attributes[att])
+-                        
++
+                     except (SyntaxError, NameError, ValueError, TypeError):
+ 
+                         expression = re.split(r"[(,) ]", GA.nodes[att]['expression'])
+-                        
++
+                         if expression[0] == 'dtt':
+ 
+                             if (expression[1] in attributes) and (expression[2] in attributes):
+-                                node_drive1 = attributes[expression[1]+'node_drive']
+-                                node_drive2 = attributes[expression[2]+'node_drive']
++                                node_drive1 = attributes[expression[1] + 'node_drive']
++                                node_drive2 = attributes[expression[2] + 'node_drive']
+                             else:
+-                                raise ValueError('expression '+GA.nodes[att]['expression']+' not possible to evaluate. check the parameters')
++                                raise ValueError('expression ' + GA.nodes[att][
++                                    'expression'] + ' not possible to evaluate. check the parameters')
+ 
+                             attributes[att] = network._return_estimated_travel_time_drive(node_drive1, node_drive2)
+ 
+@@ -612,12 +640,13 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                             stops_walking_distance = []
+ 
+                             if (expression[1] in attributes):
+-                                node_walk = attributes[expression[1]+'node_walk']
++                                node_walk = attributes[expression[1] + 'node_walk']
+                             else:
+-                                raise ValueError('expression '+GA.nodes[att]['expression']+' not possible to evaluate. check the parameters')
+-                            
++                                raise ValueError('expression ' + GA.nodes[att][
++                                    'expression'] + ' not possible to evaluate. check the parameters')
++
+                             if att == 'stops_orgn':
+-                                    pnt = Point(attributes['originx'], attributes['originy'])
++                                pnt = Point(attributes['originx'], attributes['originy'])
+                             else:
+                                 if att == 'stops_dest':
+                                     pnt = Point(attributes['destinationx'], attributes['destinationy'])
+@@ -631,18 +660,18 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                             all_zones = []
+                             all_zones.append(index_inside_zone)
+-                            
+-                            all_zones.append(index_inside_zone-1)
+-                            all_zones.append(index_inside_zone+1)
++
++                            all_zones.append(index_inside_zone - 1)
++                            all_zones.append(index_inside_zone + 1)
+                             for r in range(5):
+-                                all_zones.append(index_inside_zone-20+r)
++                                all_zones.append(index_inside_zone - 20 + r)
+                             for r in range(5):
+-                                all_zones.append(index_inside_zone-20-r)
++                                all_zones.append(index_inside_zone - 20 - r)
+                             for r in range(5):
+-                                all_zones.append(index_inside_zone+20-r)
++                                all_zones.append(index_inside_zone + 20 - r)
+                             for r in range(5):
+-                                all_zones.append(index_inside_zone+20+r)
+-                            
++                                all_zones.append(index_inside_zone + 20 + r)
++
+                             print('zones')
+                             print(all_zones)
+                             for z in all_zones:
+@@ -651,23 +680,23 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                                     stationsz = zonescsv.loc[z]['stations']
+                                     stationsz = json.loads(stationsz)
+                                     print('stations')
+-                                    print(stationsz) 
++                                    print(stationsz)
+ 
+                                     for index in stationsz:
+ 
+                                         osmid_possible_stop = int(network.bus_stations.loc[index, 'osmid_walk'])
+ 
+-                                        eta_walk = network.get_eta_walk(node_walk, osmid_possible_stop, attributes['walk_speed'])
++                                        eta_walk = network.get_eta_walk(node_walk, osmid_possible_stop,
++                                                                        attributes['walk_speed'])
+                                         if (eta_walk >= 0) and (eta_walk <= attributes['max_walking']):
+                                             stops.append(index)
+                                             stops_walking_distance.append(eta_walk)
+                                 except KeyError:
+                                     pass
+-                            
+-                            
++
+                             '''
+                             for index in network.bus_stations_ids:
+-                    
++
+                                 osmid_possible_stop = int(network.bus_stations.loc[index, 'osmid_walk'])
+ 
+                                 eta_walk = network.get_eta_walk(node_walk, osmid_possible_stop, attributes['walk_speed'])
+@@ -677,34 +706,34 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+                             '''
+ 
+                             attributes[att] = stops
+-                            attributes[att+'_walking_distance'] = stops_walking_distance
++                            attributes[att + '_walking_distance'] = stops_walking_distance
+ 
+                         elif expression[0] == 'walk':
+ 
+                             if (expression[1] in attributes) and (expression[2] in attributes):
+-                                node_walk1 = attributes[expression[1]+'node_walk']
+-                                node_walk2 = attributes[expression[2]+'node_walk']
++                                node_walk1 = attributes[expression[1] + 'node_walk']
++                                node_walk2 = attributes[expression[2] + 'node_walk']
+                             else:
+-                                raise ValueError('expression '+GA.nodes[att]['expression']+' not possible to evaluate. check the parameters')
+-                            
++                                raise ValueError('expression ' + GA.nodes[att][
++                                    'expression'] + ' not possible to evaluate. check the parameters')
++
+                             attributes[att] = network.get_eta_walk(node_walk1, node_walk2, attributes['walk_speed'])
+ 
+                         elif expression[0] == 'dist_drive':
+ 
+-                            
+                             if (expression[1] in attributes) and (expression[2] in attributes):
+-                                node_drive1 = attributes[expression[1]+'node_drive']
+-                                node_drive2 = attributes[expression[2]+'node_drive']
++                                node_drive1 = attributes[expression[1] + 'node_drive']
++                                node_drive2 = attributes[expression[2] + 'node_drive']
+                             else:
+-                                raise ValueError('expression '+GA.nodes[att]['expression']+' not possible to evaluate. check the parameters')
++                                raise ValueError('expression ' + GA.nodes[att][
++                                    'expression'] + ' not possible to evaluate. check the parameters')
+ 
+                             attributes[att] = network._return_estimated_distance_drive(node_drive1, node_drive2)
+ 
+                         else:
+-                            raise SyntaxError('expression '+GA.nodes[att]['expression']+' is not supported')
+-                
++                            raise SyntaxError('expression ' + GA.nodes[att]['expression'] + ' is not supported')
+ 
+-                #check constraints
++                # check constraints
+                 if 'constraints' in GA.nodes[att]:
+ 
+                     not_feasible_attribute = False
+@@ -713,33 +742,30 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+ 
+                         for attx in sorted_attributes:
+                             if attx in attributes:
+-                                constraint = re.sub(attx, str(attributes[attx]), constraint) 
++                                constraint = re.sub(attx, str(attributes[attx]), constraint)
+ 
+                         for paramx in parameters:
+                             if 'value' in parameters[paramx]:
+-                                constraint = re.sub(paramx, str(parameters[paramx]['value']), constraint)                       
+-                        
++                                constraint = re.sub(paramx, str(parameters[paramx]['value']), constraint)
++
+                         check_constraint = eval_expression(constraint)
+-                        
++
+                         if not check_constraint:
+                             print('hier')
+                             print(constraint)
+                             not_feasible_attribute = True
+                             exhaustion_iterations += 1
+                             if 'expression' in GA.nodes[att]:
+-                                #this means that another attribute should be remaked because of this, therefore everything is discarded
++                                # this means that another attribute should be remaked because of this, therefore everything is discarded
+                                 exhaustion_iterations = 9999
+ 
+                 else:
+                     not_feasible_attribute = False
+-           
++
+             if not_feasible_attribute:
+-            
+                 feasible_data = False
+                 break
+ 
+-            
+-
+         if feasible_data:
+             try:
+                 attributes['seed_location'] = seed_location
+@@ -748,20 +774,19 @@ def _generate_single_data(GA, network, sorted_attributes, parameters, reqid, met
+             attributes['reqid'] = reqid
+             return attributes
+ 
+-    
+     return attributes
+ 
+-def _generate_requests( 
+-    inst,
+-    replicate_num,
+-    base_save_folder_name,
+-    inst_directory,
++
++def _generate_requests(
++        inst,
++        replicate_num,
++        base_save_folder_name,
++        inst_directory,
+ ):
+-    
+     print("Now generating " + " request_data")
+ 
+-    origin_points=[]
+-    destination_points=[]
++    origin_points = []
++    destination_points = []
+     h = 0
+     num_requests = 0
+ 
+@@ -770,34 +795,34 @@ def _generate_requests(
+     inst.depot_nodes_seq = []
+ 
+     if replicate_num == 0:
+-        inst.network.zones['density_pois'] = inst.network.zones['density_pois']/100
++        inst.network.zones['density_pois'] = inst.network.zones['density_pois'] / 100
+ 
+-    #print('suuum1 ', inst.network.zones['density_pois'].sum())
++    # print('suuum1 ', inst.network.zones['density_pois'].sum())
+ 
+-    #if replicate_num == 0:
++    # if replicate_num == 0:
+     #    inst.network.zones['density_pop'] = inst.network.zones['density_pop']/100
+ 
+-    #print('suuum2 ', inst.network.zones['density_pop'].sum())
++    # print('suuum2 ', inst.network.zones['density_pop'].sum())
+ 
+     distances = []
+-    
++
+     method_poi = False
+-    pu = None 
+-    do = None 
++    pu = None
++    do = None
+     pdfunc = None
+-    aux = None 
+-    loc = None 
+-    scale = None 
+-    np.random.seed(inst.seed*(replicate_num+1))
+-    random.seed(inst.seed*(replicate_num+1))
++    aux = None
++    loc = None
++    scale = None
++    np.random.seed(inst.seed * (replicate_num + 1))
++    random.seed(inst.seed * (replicate_num + 1))
+ 
+-    zonescsv = pd.read_csv(inst.save_dir+'/csv/'+inst.output_folder_base+'.zones.csv')
++    zonescsv = pd.read_csv(inst.save_dir + '/csv/' + inst.output_folder_base + '.zones.csv')
+ 
+     num_requests = inst.parameters['requests']['value']
+ 
+     if 'method_pois' in inst.parameters:
+ 
+-        method_poi = True 
++        method_poi = True
+         pu = inst.parameters['method_pois']['value']['locations'][0]
+         do = inst.parameters['method_pois']['value']['locations'][1]
+         pdfunc = inst.parameters['method_pois']['value']['pdf']['type']
+@@ -807,134 +832,156 @@ def _generate_requests(
+         scale = inst.parameters['method_pois']['value']['pdf']['scale']
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'cauchy':
+-            distancesx = cauchy.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'], scale=inst.parameters['method_pois']['value']['pdf']['scale'], size=inst.parameters['requests']['value']+20000)
++            distancesx = cauchy.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'],
++                                    scale=inst.parameters['method_pois']['value']['pdf']['scale'],
++                                    size=inst.parameters['requests']['value'] + 20000)
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'expon':
+-            distancesx = expon.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'], scale=inst.parameters['method_pois']['value']['pdf']['scale'], size=inst.parameters['requests']['value']+20000)
++            distancesx = expon.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'],
++                                   scale=inst.parameters['method_pois']['value']['pdf']['scale'],
++                                   size=inst.parameters['requests']['value'] + 20000)
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'gamma':
+-            mux = (inst.parameters['method_pois']['value']['pdf']['loc'] + inst.parameters['method_pois']['value']['pdf']['scale']) / 2
++            mux = (inst.parameters['method_pois']['value']['pdf']['loc'] +
++                   inst.parameters['method_pois']['value']['pdf']['scale']) / 2
+             a_scale = mux / inst.parameters['method_pois']['value']['pdf']['aux']
+-            distancesx = gamma.rvs(a=inst.parameters['method_pois']['value']['pdf']['aux'], scale=a_scale, size=inst.parameters['requests']['value']+20000)
++            distancesx = gamma.rvs(a=inst.parameters['method_pois']['value']['pdf']['aux'], scale=a_scale,
++                                   size=inst.parameters['requests']['value'] + 20000)
+             aux = inst.parameters['method_pois']['value']['pdf']['aux']
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'gilbrat':
+-            distancesx = gilbrat.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'], scale=inst.parameters['method_pois']['value']['pdf']['scale'], size=inst.parameters['requests']['value']+20000)
++            distancesx = gilbrat.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'],
++                                     scale=inst.parameters['method_pois']['value']['pdf']['scale'],
++                                     size=inst.parameters['requests']['value'] + 20000)
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'lognorm':
+-            distancesx = lognorm.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'], scale=inst.parameters['method_pois']['value']['pdf']['scale'], size=inst.parameters['requests']['value']+20000)
++            distancesx = lognorm.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'],
++                                     scale=inst.parameters['method_pois']['value']['pdf']['scale'],
++                                     size=inst.parameters['requests']['value'] + 20000)
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'normal':
+-            distancesx = norm.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'], scale=inst.parameters['method_pois']['value']['pdf']['scale'], size=inst.parameters['requests']['value']+20000)
++            distancesx = norm.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'],
++                                  scale=inst.parameters['method_pois']['value']['pdf']['scale'],
++                                  size=inst.parameters['requests']['value'] + 20000)
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'powerlaw':
+-            distancesx = powerlaw.rvs(a=inst.parameters['method_pois']['value']['pdf']['aux'], loc=inst.parameters['method_pois']['value']['pdf']['loc'], scale=inst.parameters['method_pois']['value']['pdf']['scale'], size=inst.parameters['requests']['value']+20000)
++            distancesx = powerlaw.rvs(a=inst.parameters['method_pois']['value']['pdf']['aux'],
++                                      loc=inst.parameters['method_pois']['value']['pdf']['loc'],
++                                      scale=inst.parameters['method_pois']['value']['pdf']['scale'],
++                                      size=inst.parameters['requests']['value'] + 20000)
+             aux = inst.parameters['method_pois']['value']['pdf']['aux']
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'uniform':
+-            distancesx = uniform.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'], scale=inst.parameters['method_pois']['value']['pdf']['scale'], size=inst.parameters['requests']['value']+20000)
++            distancesx = uniform.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'],
++                                     scale=inst.parameters['method_pois']['value']['pdf']['scale'],
++                                     size=inst.parameters['requests']['value'] + 20000)
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'wald':
+-            distancesx = wald.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'], scale=inst.parameters['method_pois']['value']['pdf']['scale'], size=inst.parameters['requests']['value']+20000)
++            distancesx = wald.rvs(loc=inst.parameters['method_pois']['value']['pdf']['loc'],
++                                  scale=inst.parameters['method_pois']['value']['pdf']['scale'],
++                                  size=inst.parameters['requests']['value'] + 20000)
+ 
+         if inst.parameters['method_pois']['value']['pdf']['type'] == 'poisson':
+             aux = inst.parameters['method_pois']['value']['pdf']['a']
+-            distancesx = poisson.rvs(a=inst.parameters['method_pois']['value']['pdf']['aux'], size=inst.parameters['requests']['value']+20000)
++            distancesx = poisson.rvs(a=inst.parameters['method_pois']['value']['pdf']['aux'],
++                                     size=inst.parameters['requests']['value'] + 20000)
+ 
+         distances = [x for x in distancesx if x >= 500]
+         distances = [x for x in distancesx if x < 32000]
+-        
+-        #print('len distances: ', len(distances))
++
++        # print('len distances: ', len(distances))
+     else:
+ 
+         distances = [0] * num_requests
+     param_num = 1
+     for param in inst.parameters:
+ 
+-        
+-        #generate random locations according to given input
++        # generate random locations according to given input
+         if inst.parameters[param]['type'] == 'array_locations':
+ 
+             if inst.parameters[param]['locs'] == 'random':
+ 
+-                inst.parameters[param]['list'+str(replicate_num)] = []
++                inst.parameters[param]['list' + str(replicate_num)] = []
+                 count_ids = 0
+                 for elem in inst.parameters[param]['list']:
+-                    inst.parameters[param]['list'+str(replicate_num)].append(count_ids)
++                    inst.parameters[param]['list' + str(replicate_num)].append(count_ids)
+                     count_ids += 1
+ 
+-                inst.parameters[param]['list_node_drive'+str(replicate_num)] = []    
++                inst.parameters[param]['list_node_drive' + str(replicate_num)] = []
+                 for elem in inst.parameters[param]['list_node_drive']:
+-                    inst.parameters[param]['list_node_drive'+str(replicate_num)].append(elem)
++                    inst.parameters[param]['list_node_drive' + str(replicate_num)].append(elem)
+ 
+-                inst.parameters[param]['list_lon'+str(replicate_num)] = []
++                inst.parameters[param]['list_lon' + str(replicate_num)] = []
+                 for elem in inst.parameters[param]['list_lon']:
+-                    inst.parameters[param]['list_lon'+str(replicate_num)].append(elem)
++                    inst.parameters[param]['list_lon' + str(replicate_num)].append(elem)
+ 
+-                inst.parameters[param]['list_lat'+str(replicate_num)] = []
++                inst.parameters[param]['list_lat' + str(replicate_num)] = []
+                 for elem in inst.parameters[param]['list_lat']:
+-                    inst.parameters[param]['list_lat'+str(replicate_num)].append(elem)
++                    inst.parameters[param]['list_lat' + str(replicate_num)].append(elem)
+ 
+-                while len(inst.parameters[param]['list'+str(replicate_num)]) < inst.parameters[param]['size']:
++                while len(inst.parameters[param]['list' + str(replicate_num)]) < inst.parameters[param]['size']:
+ 
+-                    seed_location = (inst.seed*222)+param_num
++                    seed_location = (inst.seed * 222) + param_num
+                     param_num += 1
+                     point = inst.network._get_random_coord(inst.network.polygon, seed_location)
+                     point = (point.y, point.x)
+                     node_drive = ox.nearest_nodes(inst.network.G_drive, point[1], point[0])
+-                    if node_drive not in inst.parameters[param]['list_node_drive'+str(replicate_num)]:
+-                        inst.parameters[param]['list'+str(replicate_num)].append("random_loc"+str(len(inst.parameters[param]['list'+str(replicate_num)])))
+-                        inst.parameters[param]['list_node_drive'+str(replicate_num)].append(node_drive)
+-                        inst.parameters[param]['list_lon'+str(replicate_num)].append(point[0])
+-                        inst.parameters[param]['list_lat'+str(replicate_num)].append(point[1])
+-
+-
+-            #generate random schools according to given input
++                    if node_drive not in inst.parameters[param]['list_node_drive' + str(replicate_num)]:
++                        inst.parameters[param]['list' + str(replicate_num)].append(
++                            "random_loc" + str(len(inst.parameters[param]['list' + str(replicate_num)])))
++                        inst.parameters[param]['list_node_drive' + str(replicate_num)].append(node_drive)
++                        inst.parameters[param]['list_lon' + str(replicate_num)].append(point[0])
++                        inst.parameters[param]['list_lat' + str(replicate_num)].append(point[1])
++
++            # generate random schools according to given input
+             if inst.parameters[param]['locs'] == 'schools':
+ 
+-                inst.parameters[param]['list_ids'+str(replicate_num)] = []
++                inst.parameters[param]['list_ids' + str(replicate_num)] = []
+                 for elem in inst.parameters[param]['list_ids']:
+-                    inst.parameters[param]['list_ids'+str(replicate_num)].append(elem)
++                    inst.parameters[param]['list_ids' + str(replicate_num)].append(elem)
+ 
+-                inst.parameters[param]['list_node_drive'+str(replicate_num)] = []    
++                inst.parameters[param]['list_node_drive' + str(replicate_num)] = []
+                 for elem in inst.parameters[param]['list_node_drive']:
+-                    inst.parameters[param]['list_node_drive'+str(replicate_num)].append(elem)
++                    inst.parameters[param]['list_node_drive' + str(replicate_num)].append(elem)
+ 
+-                while len(inst.parameters[param]['list_ids'+str(replicate_num)]) < inst.parameters[param]['size']:
++                while len(inst.parameters[param]['list_ids' + str(replicate_num)]) < inst.parameters[param]['size']:
+ 
+                     random_school_id = np.random.randint(0, len(inst.network.schools))
+                     random_school_id = int(random_school_id)
+ 
+-                    if random_school_id not in inst.parameters[param]['list_ids'+str(replicate_num)]:
+-                        inst.parameters[param]['list_ids'+str(replicate_num)].append(random_school_id)
++                    if random_school_id not in inst.parameters[param]['list_ids' + str(replicate_num)]:
++                        inst.parameters[param]['list_ids' + str(replicate_num)].append(random_school_id)
+                         node_drive = inst.network.schools.loc[int(random_school_id), 'osmid_drive']
+-                        inst.parameters[param]['list_node_drive'+str(replicate_num)].append(node_drive)
++                        inst.parameters[param]['list_node_drive' + str(replicate_num)].append(node_drive)
+ 
+-        #generate random zones according to given input                
++        # generate random zones according to given input
+         if inst.parameters[param]['type'] == 'array_zones':
+ 
+-            inst.parameters[param]['zones'+str(replicate_num)] = []
++            inst.parameters[param]['zones' + str(replicate_num)] = []
+             for elem in inst.parameters[param]['zones']:
+-                inst.parameters[param]['zones'+str(replicate_num)].append(elem)
++                inst.parameters[param]['zones' + str(replicate_num)].append(elem)
++
++            while len(inst.parameters[param]['zones' + str(replicate_num)]) < inst.parameters[param]['size']:
+ 
+-            while len(inst.parameters[param]['zones'+str(replicate_num)]) < inst.parameters[param]['size']: 
+-            
+                 random_zone_id = np.random.randint(0, len(inst.network.zones))
+                 random_zone_id = int(random_zone_id)
+ 
+-                if random_zone_id not in inst.parameters[param]['zones'+str(replicate_num)]:
+-                    inst.parameters[param]['zones'+str(replicate_num)].append(random_zone_id)               
+-
++                if random_zone_id not in inst.parameters[param]['zones' + str(replicate_num)]:
++                    inst.parameters[param]['zones' + str(replicate_num)].append(random_zone_id)
+ 
+-    #to generate a specific level of dynamism
++                    # to generate a specific level of dynamism
+     time_stamps = []
+     if 'time_stamp' in inst.GA.nodes:
+         if 'dynamism' in inst.GA.nodes['time_stamp']:
+ 
+-            #starts from 100% and iteratevely decreases so it reaches the desired level
+-            #time_stamps = list(range(inst.GA.nodes['time_stamp']['pdf'][0]['loc'], inst.GA.nodes['time_stamp']['pdf'][0]['scale'] + inst.GA.nodes['time_stamp']['pdf'][0]['loc']))
+-            time_stamps = list(np.linspace(inst.GA.nodes['time_stamp']['pdf'][0]['loc'], inst.GA.nodes['time_stamp']['pdf'][0]['scale'] + inst.GA.nodes['time_stamp']['pdf'][0]['loc'], num_requests, endpoint=False))
+-            dynamismlvl = dynamism(time_stamps, inst.GA.nodes['time_stamp']['pdf'][0]['loc'], inst.GA.nodes['time_stamp']['pdf'][0]['scale'] + inst.GA.nodes['time_stamp']['pdf'][0]['loc'])
++            # starts from 100% and iteratevely decreases so it reaches the desired level
++            # time_stamps = list(range(inst.GA.nodes['time_stamp']['pdf'][0]['loc'], inst.GA.nodes['time_stamp']['pdf'][0]['scale'] + inst.GA.nodes['time_stamp']['pdf'][0]['loc']))
++            time_stamps = list(np.linspace(inst.GA.nodes['time_stamp']['pdf'][0]['loc'],
++                                           inst.GA.nodes['time_stamp']['pdf'][0]['scale'] +
++                                           inst.GA.nodes['time_stamp']['pdf'][0]['loc'], num_requests, endpoint=False))
++            dynamismlvl = dynamism(time_stamps, inst.GA.nodes['time_stamp']['pdf'][0]['loc'],
++                                   inst.GA.nodes['time_stamp']['pdf'][0]['scale'] +
++                                   inst.GA.nodes['time_stamp']['pdf'][0]['loc'])
+             if (dynamismlvl < inst.GA.nodes['time_stamp']['dynamism']):
+                 not_reached_dynamism = False
+             else:
+@@ -943,7 +990,9 @@ def _generate_requests(
+             if inst.GA.nodes['time_stamp']['dynamism'] == 0:
+                 for ts in range(len(time_stamps)):
+                     time_stamps[ts] = inst.GA.nodes['time_stamp']['pdf'][0]['loc']
+-                dynamismlvl = dynamism(time_stamps, inst.GA.nodes['time_stamp']['pdf'][0]['loc'], inst.GA.nodes['time_stamp']['pdf'][0]['scale'] + inst.GA.nodes['time_stamp']['pdf'][0]['loc'])
++                dynamismlvl = dynamism(time_stamps, inst.GA.nodes['time_stamp']['pdf'][0]['loc'],
++                                       inst.GA.nodes['time_stamp']['pdf'][0]['scale'] +
++                                       inst.GA.nodes['time_stamp']['pdf'][0]['loc'])
+                 print('dynamism zero')
+                 print(dynamismlvl)
+                 not_reached_dynamism = False
+@@ -955,87 +1004,93 @@ def _generate_requests(
+ 
+                 for ts in range(len(time_stamps)):
+ 
+-                    dynamismlvl = dynamism(time_stamps, inst.GA.nodes['time_stamp']['pdf'][0]['loc'], inst.GA.nodes['time_stamp']['pdf'][0]['scale'] + inst.GA.nodes['time_stamp']['pdf'][0]['loc'])
++                    dynamismlvl = dynamism(time_stamps, inst.GA.nodes['time_stamp']['pdf'][0]['loc'],
++                                           inst.GA.nodes['time_stamp']['pdf'][0]['scale'] +
++                                           inst.GA.nodes['time_stamp']['pdf'][0]['loc'])
+                     dynamismlvl *= 100
+                     dynamismlvl = int(dynamismlvl)
+                     print(dynamismlvl, inst.GA.nodes['time_stamp']['dynamism'])
+-                    if not ((dynamismlvl >= inst.GA.nodes['time_stamp']['dynamism'] - 1) and (dynamismlvl <= inst.GA.nodes['time_stamp']['dynamism'])):
+-                        #time_stamps[ts] = int(np.random.randint(low=inst.GA.nodes['time_stamp']['pdf'][0]['loc'], high=(inst.GA.nodes['time_stamp']['pdf'][0]['scale'] + inst.GA.nodes['time_stamp']['pdf'][0]['loc']), size=1))
+-                        time_stamps[ts] = int(uniform.rvs(loc=inst.GA.nodes['time_stamp']['pdf'][0]['loc'], scale=inst.GA.nodes['time_stamp']['pdf'][0]['scale'], size=1))
++                    if not ((dynamismlvl >= inst.GA.nodes['time_stamp']['dynamism'] - 1) and (
++                            dynamismlvl <= inst.GA.nodes['time_stamp']['dynamism'])):
++                        # time_stamps[ts] = int(np.random.randint(low=inst.GA.nodes['time_stamp']['pdf'][0]['loc'], high=(inst.GA.nodes['time_stamp']['pdf'][0]['scale'] + inst.GA.nodes['time_stamp']['pdf'][0]['loc']), size=1))
++                        time_stamps[ts] = int(uniform.rvs(loc=inst.GA.nodes['time_stamp']['pdf'][0]['loc'],
++                                                          scale=inst.GA.nodes['time_stamp']['pdf'][0]['scale'], size=1))
+                     else:
+                         not_reached_dynamism = False
+                         break
+-    
++
+     reaction_times = []
+-    if 'reaction_time' in inst.GA.nodes: 
++    if 'reaction_time' in inst.GA.nodes:
+ 
+         if inst.GA.nodes['reaction_time']['pdf'][0]['type'] == 'normal':
+-            reaction_times = norm.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'], scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=num_requests)              
+-            
++            reaction_times = norm.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'],
++                                      scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=num_requests)
+ 
+         if inst.GA.nodes['reaction_time']['pdf'][0]['type'] == 'uniform':
+-            reaction_times = uniform.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'], scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=num_requests)
+-           
+-        
++            reaction_times = uniform.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'],
++                                         scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=num_requests)
++
+         for r in range(num_requests):
+             reaction_times[r] = int(reaction_times[r])
+             while (reaction_times[r] < 0):
+                 if inst.GA.nodes['reaction_time']['pdf'][0]['type'] == 'normal':
+-                    reaction_times[r] = int(norm.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'], scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=1))
++                    reaction_times[r] = int(norm.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'],
++                                                     scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=1))
+ 
+                 if inst.GA.nodes['reaction_time']['pdf'][0]['type'] == 'uniform':
+-                    reaction_times[r] = int(uniform.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'], scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=1))
+-        
+-        
++                    reaction_times[r] = int(uniform.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'],
++                                                        scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'],
++                                                        size=1))
++
+         not_reached_urgency = True
+-        while(not_reached_urgency):
++        while (not_reached_urgency):
+ 
+             for r in range(num_requests):
+ 
+                 mean = sum(reaction_times) / len(reaction_times)
+                 variance = sum([((x - mean) ** 2) for x in reaction_times]) / len(reaction_times)
+                 stdv = variance ** 0.5
+-                #print(mean, stdv)
+-                #and (int(stdv) == inst.GA.nodes['reaction_time']['pdf'][0]['scale'])
+-                if (int(mean) <= inst.GA.nodes['reaction_time']['pdf'][0]['loc'] + inst.GA.nodes['reaction_time']['pdf'][0]['loc']*0.01):
++                # print(mean, stdv)
++                # and (int(stdv) == inst.GA.nodes['reaction_time']['pdf'][0]['scale'])
++                if (int(mean) <= inst.GA.nodes['reaction_time']['pdf'][0]['loc'] +
++                        inst.GA.nodes['reaction_time']['pdf'][0]['loc'] * 0.01):
+                     not_reached_urgency = False
+                     break
+-                
++
+                 else:
+-                    while(True):
+-                        if (reaction_times[r] > inst.GA.nodes['reaction_time']['pdf'][0]['loc']) or (reaction_times[r] < 0):
++                    while (True):
++                        if (reaction_times[r] > inst.GA.nodes['reaction_time']['pdf'][0]['loc']) or (
++                                reaction_times[r] < 0):
+                             if inst.GA.nodes['reaction_time']['pdf'][0]['type'] == 'normal':
+-                                reaction_times[r] = int(norm.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'], scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=1))
++                                reaction_times[r] = int(norm.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'],
++                                                                 scale=inst.GA.nodes['reaction_time']['pdf'][0][
++                                                                     'scale'], size=1))
+ 
+                             if inst.GA.nodes['reaction_time']['pdf'][0]['type'] == 'uniform':
+-                                reaction_times[r] = int(uniform.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'], scale=inst.GA.nodes['reaction_time']['pdf'][0]['scale'], size=1))
+-                        
+-                        if (reaction_times[r] >= 0) and (reaction_times[r] <= inst.GA.nodes['reaction_time']['pdf'][0]['loc']):    
++                                reaction_times[r] = int(uniform.rvs(loc=inst.GA.nodes['reaction_time']['pdf'][0]['loc'],
++                                                                    scale=inst.GA.nodes['reaction_time']['pdf'][0][
++                                                                        'scale'], size=1))
++
++                        if (reaction_times[r] >= 0) and (
++                                reaction_times[r] <= inst.GA.nodes['reaction_time']['pdf'][0]['loc']):
+                             break
+ 
+         print(reaction_times)
+ 
+     print(num_requests)
+     instance_data = {}
+-    all_instance_data = {}  
++    all_instance_data = {}
+ 
+     gc.collect()
+-    ray.shutdown()
+-    ray.init(num_cpus=12, object_store_memory=14000000000)
+-
+-    GA_id = ray.put(inst.GA)
+-    network_id = ray.put(inst.network)
+-    zonescsvid = ray.put(zonescsv)
+-    sorted_attributes_id = ray.put(inst.sorted_attributes)
+-    parameters_id = ray.put(inst.parameters)
++    # Ray replaced with sequential loop (Ray blocked by group policy on this machine)
+     print("HERE")
+     print(inst.sorted_attributes)
+-    all_reqs = ray.get([_generate_single_data.remote(GA_id, network_id, sorted_attributes_id, parameters_id, i, method_poi, distances[i], pu, do, pdfunc, loc, scale, aux, time_stamps, replicate_num, reaction_times, num_requests, zonescsvid) for i in range(num_requests)]) 
++    all_reqs = [_generate_single_data(inst.GA, inst.network, inst.sorted_attributes, inst.parameters, i,
++                                      method_poi, distances[i], pu, do, pdfunc, loc, scale, aux,
++                                      time_stamps, replicate_num, reaction_times, num_requests,
++                                      zonescsv) for i in range(num_requests)]
+     print("OUT HERE")
+-    ray.shutdown()
+ 
+-    
+-    
+     '''
+     time_stamps_all = []
+     for i in all_reqs:
+@@ -1053,27 +1108,21 @@ def _generate_requests(
+     plt.savefig("gamma_distribution_plot.png")
+     '''
+ 
+-    del GA_id
+-    del network_id
+-    del sorted_attributes_id
+-    del parameters_id
+     gc.collect()
+ 
+     i = 0
+     for req in all_reqs:
+-
+         instance_data.update({i: req})
+-        i += 1    
+-              
++        i += 1
++
+     del all_reqs
+     gc.collect()
+ 
+     all_instance_data.update({'num_data:': len(instance_data),
+-                          'requests': instance_data
+-                          })
++                              'requests': instance_data
++                              })
+ 
+     final_filename = ''
+-    
+ 
+     for p in inst.instance_filename:
+ 
+@@ -1084,9 +1133,9 @@ def _generate_requests(
+ 
+                 if len(final_filename) > 0:
+                     final_filename = final_filename + '_' + strv
+-                else: final_filename = strv
+-    
+-        
++                else:
++                    final_filename = strv
++
+     if 'travel_time_matrix' in inst.parameters:
+         if inst.parameters['travel_time_matrix']['value'] is True:
+             node_list = []
+@@ -1098,89 +1147,83 @@ def _generate_requests(
+                 if location == 'bus_stations':
+ 
+                     for index, row in inst.network.bus_stations.iterrows():
+-
+                         node_list.append(row['osmid_drive'])
+                         node_list_seq.append(index)
+-                        #print(index)
+-                        lvid = index+1
++                        # print(index)
++                        lvid = index + 1
+ 
+                 if location in inst.parameters:
+ 
+-                    inst.parameters[location]['list_seq_id'+str(replicate_num)] = []
+-                    #print(inst.parameters[location]['list_node_drive'+str(replicate_num)])
+-                    for d in inst.parameters[location]['list_node_drive'+str(replicate_num)]:
+-
++                    inst.parameters[location]['list_seq_id' + str(replicate_num)] = []
++                    # print(inst.parameters[location]['list_node_drive'+str(replicate_num)])
++                    for d in inst.parameters[location]['list_node_drive' + str(replicate_num)]:
+                         node_list.append(d)
+                         node_list_seq.append(lvid)
+                         print(lvid)
+-                        inst.parameters[location]['list_seq_id'+str(replicate_num)].append(lvid)
++                        inst.parameters[location]['list_seq_id' + str(replicate_num)].append(lvid)
+                         lvid += 1
+ 
+                 if location in inst.sorted_attributes:
+ 
+                     for d in instance_data:
+-
+-                        node_list.append(instance_data[d][location+'node_drive'])
+-                        instance_data[d][location+'id'] = lvid
++                        node_list.append(instance_data[d][location + 'node_drive'])
++                        instance_data[d][location + 'id'] = lvid
+                         node_list_seq.append(lvid)
+                         print(lvid)
+                         lvid += 1
+ 
+             if replicate_num == 0:
+-                
+-                output_file_ttm_csv = os.path.join(inst.save_dir_ttm, 'travel_time_matrix_' + final_filename + '_' + str(replicate_num) + '.csv')
++
++                output_file_ttm_csv = os.path.join(inst.save_dir_ttm,
++                                                   'travel_time_matrix_' + final_filename + '_' + str(
++                                                       replicate_num) + '.csv')
+ 
+                 if not os.path.exists(output_file_ttm_csv):
+-                    
++
+                     travel_time = inst.network._get_travel_time_matrix("list", node_list=node_list)
+                     travel_time_json = travel_time.tolist()
+ 
+                     all_instance_data.update({'travel_time_matrix': travel_time_json
+-                                    })
+-                    
++                                              })
++
+                     print('leave ttm')
+-                    print(len(node_list), len(node_list_seq))          
++                    print(len(node_list), len(node_list_seq))
+                     if 'graphml' in inst.parameters:
+                         if inst.parameters['graphml']['value'] is True:
+-                            #creates a graph that will serve as the travel time matrix for the given set of requests
+-                            gtt = nx.DiGraph() 
++                            # creates a graph that will serve as the travel time matrix for the given set of requests
++                            gtt = nx.DiGraph()
+ 
+                             if 'bus_stations' in inst.parameters['travel_time_matrix']['locations']:
+ 
+                                 for index, row in inst.network.bus_stations.iterrows():
+-
+                                     gtt.add_node(index, type='bus_stations')
+ 
+                             for param in inst.parameters:
+ 
+                                 if param in inst.parameters['travel_time_matrix']['locations']:
+ 
+-                                    for d in inst.parameters[param]['list_seq_id'+str(replicate_num)]:
+-
++                                    for d in inst.parameters[param]['list_seq_id' + str(replicate_num)]:
+                                         node = d
+                                         gtt.add_node(node, type=param)
+ 
+                             for att in inst.sorted_attributes:
+-                                
++
+                                 if att in inst.parameters['travel_time_matrix']['locations']:
+ 
+                                     for d in instance_data:
+-
+-                                        node = instance_data[d][att+'id']
++                                        node = instance_data[d][att + 'id']
+                                         gtt.add_node(node, type=att)
+ 
+                             for u in node_list_seq:
+                                 for v in node_list_seq:
+-
+                                     gtt.add_edge(u, v, travel_time=travel_time_json[u][v])
+ 
+-                            output_name_graphml = os.path.join(inst.save_dir_graphml, inst.output_folder_base + '_' + str(replicate_num) + '.graphml')
++                            output_name_graphml = os.path.join(inst.save_dir_graphml,
++                                                               inst.output_folder_base + '_' + str(
++                                                                   replicate_num) + '.graphml')
+ 
+                             nx.write_graphml(gtt, output_name_graphml)
+ 
+-
+-                    
+-                
+                     '''
+                     ttml = []
+                     for u in node_list_seq:
+@@ -1193,26 +1236,26 @@ def _generate_requests(
+                             d[sv] = dist_uv
+                         ttml.append(d)
+                         del d
+-                    ''' 
++                    '''
+                     ttmpd = pd.DataFrame(travel_time)
+ 
+                     ttmpd.to_csv(output_file_ttm_csv)
+-                        
+-                    #ttmpd.set_index(['osmid_origin'], inplace=True)
+ 
++                    # ttmpd.set_index(['osmid_origin'], inplace=True)
+ 
+-    save_dir = os.getcwd()+'/'+inst.output_folder_base
++    save_dir = os.getcwd() + '/' + inst.output_folder_base
+     save_dir_images = os.path.join(save_dir, 'images')
+     plot_requests(inst.network, save_dir_images, origin_points, destination_points)
+ 
+     final_filename = inst.filename_json.replace(inst_directory, "")
+     final_filename = final_filename.replace(".json", "")
+-    
+-    inst.output_file_json = os.path.join(inst.save_dir_json+'/'+base_save_folder_name, final_filename + '_' + str(replicate_num+1) + '.json')
++
++    inst.output_file_json = os.path.join(inst.save_dir_json + '/' + base_save_folder_name,
++                                         final_filename + '_' + str(replicate_num + 1) + '.json')
+ 
+     with open(inst.output_file_json, 'w') as file:
+         json.dump(all_instance_data, file, indent=4)
+-        file.close() 
++        file.close()
+ 
+     del all_instance_data
+     gc.collect()
+diff --git a/REQreate/retrieve_bus_stations.py b/REQreate/retrieve_bus_stations.py
+index e2c0d6cf..1b02e536 100644
+--- a/REQreate/retrieve_bus_stations.py
++++ b/REQreate/retrieve_bus_stations.py
+@@ -104,8 +104,6 @@ def get_bus_stations_matrix_csv(G_walk, G_drive, place_name, save_dir, output_fo
+     '''
+ 
+     gc.collect()
+-    ray.shutdown()
+-    ray.init(num_cpus=8, object_store_memory=14000000000)
+ 
+     save_dir_csv = os.path.join(save_dir, 'csv')
+ 
+@@ -117,9 +115,11 @@ def get_bus_stations_matrix_csv(G_walk, G_drive, place_name, save_dir, output_fo
+     if os.path.isfile(path_bus_stations):
+         print('is file bus stations')
+         bus_stations = pd.read_csv(path_bus_stations)
+-        
++
+     else:
+         print('creating file bus stations')
++        ray.shutdown()
++        ray.init(num_cpus=8, object_store_memory=2_000_000_000)
+ 
+         #retrieve bus stops
+         tags = {
+diff --git a/REQreate/retrieve_network.py b/REQreate/retrieve_network.py
+index 491cc1b6..a90c3ad8 100644
+--- a/REQreate/retrieve_network.py
++++ b/REQreate/retrieve_network.py
+@@ -112,40 +112,45 @@ def download_network_information(
+     ‘all_private’ – download all OSM streets and paths, including private-access ones
+     '''
+ 
++    # ==============================================================================
++    # 【修改】 针对 "Leuven, Belgium" 强制使用自定义矩形范围
++    # ==============================================================================
++    if place_name == "Leuven, Belgium":
++        print(f">>> [Force Fix] 检测到鲁汶案例，强制使用自定义 BBox 生成 Polygon...")
++
++        # 你的自定义范围
++        north = 50.956415
++        south = 50.860562
++        east = 4.725156
++        west = 4.668210
++
++        # 直接创建一个矩形 Polygon
++        # 这样下面的 ox.graph_from_polygon 就会下载这个矩形内的所有路网，不会被行政边界切断
++        polygon = ox.utils_geo.bbox_to_poly(north, south, east, west)
+ 
+-    if graph_from_point:
++    elif graph_from_point:
+ 
+         center_point = (lat, lon)
+         north, south, east, west = ox.utils_geo.bbox_from_point(center_point, dist)
+-
+-        '''
+-        G = ox.graph_from_bbox(
+-            north,
+-            south,
+-            east,
+-            west,
+-            network_type='drive',
+-            retain_all=True
+-        )
+-        '''
+         polygon = ox.utils_geo.bbox_to_poly(north, south, east, west)
++
+     else:
+         api_osm = osm.OsmApi()
+ 
+         if isinstance(place_name, (str, dict)):
+-            # if it is a string (place name) or dict (structured place query), then
+-            # it is a single place
++            # 这里是原版的逻辑：会搜索行政区划，导致边界被切断
+             gdf_place = ox.geocoder.geocode_to_gdf(
+                 place_name, which_result=None, buffer_dist=None
+             )
+         elif isinstance(place_name, list):
+-            # if it is a list, it contains multiple places to get
+             gdf_place = ox.geocoder.geocode_to_gdf(place_name, buffer_dist=None)
+         else:
+             raise TypeError("query must be dict, string, or list of strings")
+ 
+-        # extract the geometry from the GeoDataFrame to use in API query
+-        polygon = gdf_place["geometry"].unary_union 
++        # extract the geometry from the GeoDataFrame
++        polygon = gdf_place["geometry"].unary_union
++
++        # ==============================================================================
+ 
+     
+     G_walk = ox.graph_from_polygon(

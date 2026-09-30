@@ -1,0 +1,4 @@
+* text=auto
+# Keep data files and the REQreate patch byte for byte.
+*.json -text
+*.patch -text
